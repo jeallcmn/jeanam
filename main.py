@@ -1,67 +1,78 @@
-# import mido
-# mido.set_backend('mido.backends.rtmidi/UNIX_JACK')
-
-# def callback(msg):
-#     print(msg)
-
-# in_port = mido.open_input('In', client_name="JEANAM-In", callback=callback)
 
 import modhost
 import effects
-import jeanam.system
-
-system = jeanam.system.System()
+import effects.system
+from mido import Message
+system = effects.system.System()
 host = modhost.Host()
+host.transport_sync('midi')
+host.transport(1, 4, 120)
+
+midimapper = effects.MidiMapper(system)
 
 amp = effects.Effect(host, system, 'http://github.com/mikeoliphant/neural-amp-modeler-lv2')
+poweramp = effects.Effect(host, system, 'http://eq10q.sourceforge.net/eq/eq4qm')
 cab = effects.Effect(host, system, 'http://lsp-plug.in/plugins/lv2/impulse_responses_stereo')
 reverb = effects.Effect(host, system, 'urn:dragonfly:room')
-poweramp = effects.Effect(host, system, 'http://eq10q.sourceforge.net/eq/eq4qm')
 
-# print (amp)
-# print (cab)
-# print (reverb)
-# 
+drumReverb = effects.Effect(host, system, 'urn:dragonfly:room')
+looper = effects.JackEffect(system, "sooperlooper", "a2j", midi_port_pattern="sooperlooper")
 
-# amp.patch('model', '/home/jon/Amps/REVV 02.nam')
-amp.preset('GSP2101 Saturated')
+hydrogen = effects.JackEffect(system, "Hydrogen", "Hydrogen-midi")
+bassMachine = effects.Effect(host, system, 'http://kxstudio.linuxaudio.org/plugins/FluidPlug_FluidBass')
+
+amp.patch('model', '/home/jon/Amps/REVV 02.nam')
+# amp.preset('GSP2101 Saturated')
 cab.preset('V30 Stereo')
 reverb.preset('VocalHall')
+drumReverb.preset('VocalHall')
+poweramp.preset('Poweramp')
+poweramp.toggle()
 
-system.connect(system.audio_outputs[1], amp.audio_inputs[0])
-system.connect(amp.audio_outputs[0], poweramp.audio_inputs[0])
+system.connect_all(system, amp, mono_left=False)
+system.connect_all(amp, poweramp)
+system.connect_all(poweramp, cab)
+system.connect_all(cab, reverb)
+# system.connect_all(cab, looper)
 
-system.connect(poweramp.audio_outputs[0], cab.audio_inputs[0])
-system.connect(poweramp.audio_outputs[0], cab.audio_inputs[1])
-system.connect(cab.audio_outputs[0], reverb.audio_inputs[0])
-system.connect(cab.audio_outputs[1], reverb.audio_inputs[1])
-system.connect(reverb.audio_outputs[0], system.audio_inputs[0])
-system.connect(reverb.audio_outputs[1], system.audio_inputs[1])
+# system.connect_all(looper, reverb)
+system.connect_all(hydrogen, drumReverb)
+system.connect_all(bassMachine, reverb)
+system.connect_all(reverb, system)
 
-# Resonance
-poweramp.param('filter2_enable', 1)
-poweramp.param('filter2_gain', 6)
-poweramp.param('filter2_freq',95)
-poweramp.param('filter2_q', 2.0)
-poweramp.param('filter2_type', 11)
-# Presence
-poweramp.param('filter4_enable',1)
-poweramp.param('filter4_gain', 6)
-poweramp.param('filter4_freq',10000)
-poweramp.param('filter4_q', 0.2)
-poweramp.param('filter4_type',11)
+# Connect the looper between reverb and system and only use the common audio ports
+system.connect_all(reverb, looper, audio_input_pattern="common")
+system.connect_all(looper, system, audio_output_pattern="common")
+
+system.connect_all(drumReverb, system)
+# Connect the Midi Mapper to the the system foot controller
+system.connect_all(system, midimapper, include_midi=True, midi_output_pattern="foot_controller")
+
+system.connect_all(midimapper, hydrogen, include_midi=True)
+system.connect_all(midimapper, bassMachine, include_midi=True)
+system.connect_all(midimapper, looper, include_midi=True)
+
+import drums
+import bass
+import loopor
+
+drums.register(midimapper)
+bass.register(midimapper)
+loopor.register(midimapper)
+
+midimapper.set_mode('drums')
+midimapper.set_mode('bass')
+bassMachine.param('level', 2)
+midimapper.set_mode('loopor')
 
 
-# print ("System Inputs:", system.inputs)
-# print ("System Outputs:", system.outputs)
+# looper.preset('Basic')
+# drumRhythm.preset('Rock1')
 
-# print(client.get_ports(is_audio=True, is_physical=True, is_input=True))
-# print()
-    # def audio_outputs(self):
-    #     return self.client.get_ports(is_audio=True, is_physical=True, is_output=True)
-    # def midi_inputs(self):
-    #     return self.client.get_ports(is_midi=True, is_physical=True, is_input=True)
-    # def midi_outputs(self):
-    #     return self.client.get_ports(is_midi=True, is_physical=True, is_output=True)
-
+# controller.map_action(Message(type='note_on', channel=1, control=1), lambda m: poweramp.toggle())
+# controller.map_action(Message(type='note_on', channel=1, control=2), lambda m: amp.toggle())
+# controller.map_action(Message(type='note_on', channel=1, control=3), lambda m: cab.toggle())
+# controller.map_action(Message(type='note_on', channel=1, control=4), lambda m: reverb.toggle())
+# controller.map_action(Message(type='note_on', channel=1, control=6), lambda m: looper.toggle_loop(1))
+# controller.map_action(Message(type='note_on', channel=1, control=7), lambda m: looper.toggle_loop(2))
 
